@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom/client'; 
+import { createRoot } from 'react-dom/client'; // 修复：改回使用 createRoot 命名导出，这通常更稳定
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, getDocs, orderBy, query, serverTimestamp, doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
@@ -15,6 +15,7 @@ const firebaseConfig = {
   appId: "1:126112805306:web:d80e61a4e89ce55b766d83"
 };
 
+// 初始化 Firebase
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -340,6 +341,6 @@ function CreateCollectionForm({ onBack, user }) {
 
 const container = document.getElementById('root');
 if (container) {
-  const root = ReactDOM.createRoot(container);
+  const root = createRoot(container); // 修复：使用 createRoot 
   root.render(<App />);
 }

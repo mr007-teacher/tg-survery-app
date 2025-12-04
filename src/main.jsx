@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { createRoot } from 'react-dom/client';
+import ReactDOM from 'react-dom/client'; // 修改这里：使用更稳定的导入方式
 // 直接引入 Firebase 功能
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, getDocs, orderBy, query, serverTimestamp } from "firebase/firestore";
@@ -17,6 +17,7 @@ const firebaseConfig = {
 };
 
 // 初始化 Firebase
+// 增加防抖判断，防止 React 开发模式下重复初始化报错
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -165,6 +166,7 @@ function CreateCollectionForm({ onBack, user }) {
 
 const container = document.getElementById('root');
 if (container) {
-  const root = createRoot(container);
+  // 修改这里：使用 ReactDOM.createRoot 而不是直接解构引用
+  const root = ReactDOM.createRoot(container);
   root.render(<App />);
 }

@@ -1,12 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import ReactDOM from 'react-dom/client'; // 修改这里：使用更稳定的导入方式
-// 直接引入 Firebase 功能
+import ReactDOM from 'react-dom/client'; 
 import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, getDocs, orderBy, query, serverTimestamp } from "firebase/firestore";
+import { getFirestore, collection, addDoc, getDocs, orderBy, query, serverTimestamp, doc, setDoc, onSnapshot } from "firebase/firestore";
 import { getAuth, signInAnonymously, onAuthStateChanged } from "firebase/auth";
-import { ArrowLeft, FileText, CheckCircle, Plus, Loader2 } from 'lucide-react';
+import { ArrowLeft, Plus, Loader2, ChevronRight, X } from 'lucide-react';
 
-// --- 1. 核心配置 (直接内置，确保稳如泰山) ---
+// --- 1. 核心配置 ---
 const firebaseConfig = {
   apiKey: "AIzaSyBFGLjRinG7hfcq33mcnnhddNXFcSHL4v0",
   authDomain: "tg-survey-app.firebaseapp.com",
@@ -16,8 +15,6 @@ const firebaseConfig = {
   appId: "1:126112805306:web:d80e61a4e89ce55b766d83"
 };
 
-// 初始化 Firebase
-// 增加防抖判断，防止 React 开发模式下重复初始化报错
 const app = initializeApp(firebaseConfig);
 const db = getFirestore(app);
 const auth = getAuth(app);
@@ -27,60 +24,86 @@ const DEFAULT_CLASSES = "12A\n12B\n12C\n12D\n12E";
 export default function App() {
   const [view, setView] = useState('home'); 
   const [user, setUser] = useState(null);
+  const [selectedCollection, setSelectedCollection] = useState(null); // 新增：当前选中的任务
 
-  // 2. 自动登录逻辑
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-    });
-    // 悄悄地在后台登录，用户无感知
+    const unsubscribe = onAuthStateChanged(auth, setUser);
     signInAnonymously(auth).catch((err) => console.error("登录失败:", err));
     return () => unsubscribe();
   }, []);
 
-  return (
-    <div className="min-h-screen bg-gray-50 flex flex-col items-center py-10 px-4 sm:px-6 lg:px-8">
-      {!user ? (
+  // 路由逻辑
+  const renderView = () => {
+    if (!user) {
+      return (
         <div className="flex flex-col items-center justify-center h-64 text-gray-500">
           <Loader2 className="w-8 h-8 animate-spin mb-4 text-blue-500" />
           <p>正在连接云端数据...</p>
         </div>
-      ) : view === 'create' ? (
-        <CreateCollectionForm onBack={() => setView('home')} user={user} />
-      ) : (
-        <HomeView onCreate={() => setView('create')} user={user} />
-      )}
+      );
+    }
+
+    switch (view) {
+      case 'create':
+        return <CreateCollectionForm onBack={() => setView('home')} user={user} />;
+      case 'fill': // 新增：填表视图
+        return (
+          <FillCollectionView 
+            collection={selectedCollection} 
+            onBack={() => {
+              setSelectedCollection(null);
+              setView('home');
+            }} 
+            user={user} 
+          />
+        );
+      case 'home':
+      default:
+        return (
+          <HomeView 
+            onCreate={() => setView('create')} 
+            onSelect={(col) => {
+              setSelectedCollection(col);
+              setView('fill');
+            }}
+            user={user} 
+          />
+        );
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex flex-col items-center py-10 px-4 sm:px-6 lg:px-8">
+      {renderView()}
     </div>
   );
 }
 
 // --- 首页视图 ---
-function HomeView({ onCreate, user }) {
+function HomeView({ onCreate, onSelect, user }) {
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!user) return;
-    async function fetchCollections() {
-      try {
-        const q = query(collection(db, "collections"), orderBy("createdAt", "desc"));
-        const snapshot = await getDocs(q);
-        setCollections(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-      } catch (error) {
-        console.error("加载失败:", error);
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchCollections();
+    // 实时监听数据库变化
+    const q = query(collection(db, "collections"), orderBy("createdAt", "desc"));
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      setCollections(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+      setLoading(false);
+    }, (error) => {
+      console.error("加载失败:", error);
+      setLoading(false);
+    });
+    return () => unsubscribe();
   }, [user]);
 
   return (
     <div className="w-full max-w-3xl space-y-8">
       <div className="flex justify-between items-center">
         <h1 className="text-3xl font-bold text-gray-900">所有收集</h1>
-        <button onClick={onCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium text-lg flex items-center shadow-sm">
-          <Plus className="w-6 h-6 mr-2" /> 新建收集
+        <button onClick={onCreate} className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-xl font-medium text-lg flex items-center shadow-sm transition-colors">
+          <Plus className="w-6 h-6 mr-2" /> 新建
         </button>
       </div>
       
@@ -93,9 +116,18 @@ function HomeView({ onCreate, user }) {
       ) : (
         <div className="grid gap-4">
           {collections.map(item => (
-            <div key={item.id} className="bg-white p-6 rounded-xl shadow-sm border border-gray-200">
-              <h3 className="text-xl font-bold text-gray-900">{item.title}</h3>
-              <p className="text-gray-500 mt-2">包含: {item.fields}</p>
+            <div 
+              key={item.id} 
+              onClick={() => onSelect(item)} // 点击触发
+              className="bg-white p-6 rounded-xl shadow-sm border border-gray-200 hover:shadow-md hover:border-blue-300 transition-all cursor-pointer group"
+            >
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">{item.title}</h3>
+                  <p className="text-gray-500 mt-2">需填: {item.fields}</p>
+                </div>
+                <ChevronRight className="w-6 h-6 text-gray-300 group-hover:text-blue-500" />
+              </div>
             </div>
           ))}
         </div>
@@ -104,7 +136,149 @@ function HomeView({ onCreate, user }) {
   );
 }
 
-// --- 创建视图 ---
+// --- 新增：填表视图 ---
+function FillCollectionView({ collection: targetCol, onBack, user }) {
+  const [submissions, setSubmissions] = useState({});
+  const [selectedClass, setSelectedClass] = useState(null); // 当前选中的班级进行填报
+
+  // 1. 监听这个任务下的所有提交记录
+  useEffect(() => {
+    const subColRef = collection(db, "collections", targetCol.id, "submissions");
+    const unsubscribe = onSnapshot(subColRef, (snapshot) => {
+      const subData = {};
+      snapshot.forEach(doc => {
+        subData[doc.id] = doc.data();
+      });
+      setSubmissions(subData);
+    });
+    return () => unsubscribe();
+  }, [targetCol.id]);
+
+  // 打开填报弹窗
+  const openFillModal = (className) => {
+    setSelectedClass(className);
+  };
+
+  return (
+    <div className="w-full max-w-3xl relative">
+      <div className="flex items-center mb-8">
+        <button onClick={onBack} className="p-2 -ml-2 mr-4 rounded-full hover:bg-gray-200 text-gray-600 transition-colors">
+          <ArrowLeft className="w-8 h-8" />
+        </button>
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">{targetCol.title}</h1>
+          <p className="text-gray-500 mt-1">请选择班级进行填报</p>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        {targetCol.classes.map((cls) => {
+          const isDone = !!submissions[cls];
+          return (
+            <button
+              key={cls}
+              onClick={() => openFillModal(cls)}
+              className={`p-4 rounded-xl border text-left transition-all ${
+                isDone 
+                  ? 'bg-green-50 border-green-200 hover:bg-green-100' 
+                  : 'bg-white border-gray-200 hover:border-blue-400 hover:shadow-md'
+              }`}
+            >
+              <div className="text-xl font-bold text-gray-800">{cls}</div>
+              <div className={`text-sm mt-2 ${isDone ? 'text-green-600 font-medium' : 'text-gray-400'}`}>
+                {isDone ? '已完成 ✅' : '点击填报'}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 填报弹窗 */}
+      {selectedClass && (
+        <SubmitModal 
+          classNameStr={selectedClass} 
+          fieldsStr={targetCol.fields} 
+          collectionId={targetCol.id}
+          existingData={submissions[selectedClass]}
+          onClose={() => setSelectedClass(null)}
+          user={user}
+        />
+      )}
+    </div>
+  );
+}
+
+// --- 新增：提交弹窗组件 ---
+function SubmitModal({ classNameStr, fieldsStr, collectionId, existingData, onClose, user }) {
+  const fields = fieldsStr.split(/[,，]/).map(s => s.trim()).filter(Boolean); // 解析字段
+  const [formData, setFormData] = useState({});
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // 如果有旧数据，自动填充
+  useEffect(() => {
+    if (existingData && existingData.data) {
+      setFormData(existingData.data);
+    }
+  }, [existingData]);
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    setIsSubmitting(true);
+    try {
+      // 写入子集合：collections/{id}/submissions/{ClassName}
+      const docRef = doc(db, "collections", collectionId, "submissions", classNameStr);
+      await setDoc(docRef, {
+        data: formData,
+        updatedAt: serverTimestamp(),
+        updatedBy: user.uid
+      });
+      onClose();
+    } catch (error) {
+      alert("提交失败: " + error.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50 animate-in fade-in duration-200">
+      <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl overflow-hidden">
+        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+          <h3 className="text-2xl font-bold text-gray-900">{classNameStr} 填报</h3>
+          <button onClick={onClose} className="p-2 hover:bg-gray-200 rounded-full text-gray-500">
+            <X className="w-6 h-6" />
+          </button>
+        </div>
+        
+        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+          {fields.map(field => (
+            <div key={field}>
+              <label className="block text-lg font-medium text-gray-700 mb-2">{field}</label>
+              <input 
+                type="text" 
+                required
+                value={formData[field] || ''}
+                onChange={e => setFormData({...formData, [field]: e.target.value})}
+                className="w-full p-4 text-lg border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 outline-none transition-all"
+                placeholder={`请输入${field}`}
+              />
+            </div>
+          ))}
+
+          <button 
+            type="submit" 
+            disabled={isSubmitting}
+            className="w-full bg-blue-600 hover:bg-blue-700 text-white text-xl font-bold py-4 rounded-xl transition-all flex justify-center items-center"
+          >
+            {isSubmitting ? <Loader2 className="animate-spin w-6 h-6" /> : '提交'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// --- 创建视图 (保持不变) ---
 function CreateCollectionForm({ onBack, user }) {
   const [title, setTitle] = useState('');
   const [fields, setFields] = useState('人数, 缺席');
@@ -156,7 +330,7 @@ function CreateCollectionForm({ onBack, user }) {
         </div>
         <div className="pt-4">
           <button onClick={handleCreate} disabled={isSubmitting} className={`w-full text-white text-xl font-semibold py-5 rounded-xl flex justify-center items-center ${isSubmitting ? 'bg-gray-400' : 'bg-blue-600 hover:bg-blue-700'}`}>
-            {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : <><CheckCircle className="w-6 h-6 mr-2" /> 创建</>}
+            {isSubmitting ? <Loader2 className="w-6 h-6 animate-spin" /> : <><Plus className="w-6 h-6 mr-2" /> 创建</>}
           </button>
         </div>
       </div>
@@ -166,7 +340,6 @@ function CreateCollectionForm({ onBack, user }) {
 
 const container = document.getElementById('root');
 if (container) {
-  // 修改这里：使用 ReactDOM.createRoot 而不是直接解构引用
   const root = ReactDOM.createRoot(container);
   root.render(<App />);
 }

@@ -1,5 +1,6 @@
 import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
+import { getAuth } from "firebase/auth"; // 1. 新增：引入 Auth
 
 // 你的 Firebase 配置
 const firebaseConfig = {
@@ -14,5 +15,8 @@ const firebaseConfig = {
 // 初始化 Firebase
 const app = initializeApp(firebaseConfig);
 
-// 导出数据库实例，这一步很关键！
+// 导出数据库实例
 export const db = getFirestore(app);
+
+// 2. 新增：导出 Auth 实例
+export const auth = getAuth(app);

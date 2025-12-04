@@ -14,5 +14,5 @@ const firebaseConfig = {
 // 初始化 Firebase
 const app = initializeApp(firebaseConfig);
 
-// 导出数据库实例，供 App.jsx 使用
+// 导出数据库实例，这一步很关键！
 export const db = getFirestore(app);
